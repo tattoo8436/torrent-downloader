@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Torrent to Google Drive Downloader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="background-decor"></div>
+  <div class="container">
+    <header>
+      <h1>Torrent <span>to</span> Google Drive</h1>
+      <p class="subtitle">Tải file Torrent siêu tốc bằng Magnet Link và tự động đồng bộ hóa lên Google Drive.</p>
+    </header>
+
+    <main>
+      <!-- OAuth Login Alert Card -->
+      <div class="card auth-card hidden" id="authCard">
+        <h2>Kết nối Google Drive</h2>
+        <p>Ứng dụng cần liên kết với Google Drive của bạn để tự động lưu file sau khi tải xong.</p>
+        <a id="loginBtn" href="#" target="_blank" class="btn-link">Đăng nhập Google Drive</a>
+      </div>
+
+      <div class="card form-card">
+        <h2>Bắt đầu tải mới</h2>
+        <div class="input-group">
+          <input type="text" id="magnetLink" placeholder="Dán magnet link tại đây (magnet:?...)" required>
+          <button id="downloadBtn">Bắt đầu tải</button>
+        </div>
+        <p id="errorMsg" class="error-msg"></p>
+      </div>
+
+      <div class="card status-card hidden" id="statusCard">
+        <div class="torrent-header">
+          <h2 id="torrentName">Đang lấy thông tin...</h2>
+          <span class="badge" id="torrentSize">0 B</span>
+        </div>
+
+        <div class="progress-section">
+          <h3>Tiến trình tải torrent</h3>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="torrentProgressBar" style="width: 0%"></div>
+          </div>
+          <div class="progress-stats">
+            <span id="torrentPercent">0%</span>
+            <span id="torrentPeers">0 Peers</span>
+            <span id="torrentSpeed">⬇ 0 B/s | ⬆ 0 B/s</span>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="progress-section">
+          <h3>Đồng bộ hóa Google Drive</h3>
+          <div class="progress-bar-container gdrive">
+            <div class="progress-bar gdrive-bar" id="gdriveProgressBar" style="width: 0%"></div>
+          </div>
+          <div class="progress-stats">
+            <span id="gdriveStatus">Đang chờ torrent tải xong...</span>
+            <span id="gdrivePercent">0%</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>Phát triển bằng Node.js & WebTorrent</p>
+    </footer>
+  </div>
+
+  <script>
+    const magnetInput = document.getElementById('magnetLink');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const errorMsg = document.getElementById('errorMsg');
+    const statusCard = document.getElementById('statusCard');
+    
+    const torrentName = document.getElementById('torrentName');
+    const torrentSize = document.getElementById('torrentSize');
+    const torrentProgressBar = document.getElementById('torrentProgressBar');
+    const torrentPercent = document.getElementById('torrentPercent');
+    const torrentPeers = document.getElementById('torrentPeers');
+    const torrentSpeed = document.getElementById('torrentSpeed');
+
+    const gdriveProgressBar = document.getElementById('gdriveProgressBar');
+    const gdriveStatus = document.getElementById('gdriveStatus');
+    const gdrivePercent = document.getElementById('gdrivePercent');
+
+    function formatBytes(bytes, decimals = 2) {
+      if (!bytes) return '0 Bytes';
+      const k = 1024;
+      const dm = decimals < 0 ? 0 : decimals;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    downloadBtn.addEventListener('click', async () => {
+      const magnetLink = magnetInput.value.trim();
+      if (!magnetLink) {
+        showError('Vui lòng điền magnet link!');
+        return;
+      }
+      
+      errorMsg.textContent = '';
+      downloadBtn.disabled = true;
+      downloadBtn.textContent = 'Đang kết nối...';
+
+      try {
+        const response = await fetch('/api/download', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ magnetLink }),
+        });
+        const data = await response.json();
+        
+        if (!response.ok) {
+          showError(data.error || 'Có lỗi xảy ra.');
+          downloadBtn.disabled = false;
+          downloadBtn.textContent = 'Bắt đầu tải';
+        } else {
+          statusCard.classList.remove('hidden');
+          magnetInput.value = '';
+          downloadBtn.disabled = false;
+          downloadBtn.textContent = 'Bắt đầu tải';
+        }
+      } catch (err) {
+        showError('Không thể kết nối đến server.');
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = 'Bắt đầu tải';
+      }
+    });
+
+    const authCard = document.getElementById('authCard');
+    const loginBtn = document.getElementById('loginBtn');
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+    }
+
+    // Connect to Server-Sent Events for progress updates
+    const eventSource = new EventSource('/api/status');
+    eventSource.onmessage = (event) => {
+      const status = JSON.parse(event.data);
+
+      // Handle OAuth visibility
+      if (status.authenticated) {
+        authCard.classList.add('hidden');
+        downloadBtn.disabled = false;
+      } else {
+        authCard.classList.remove('hidden');
+        downloadBtn.disabled = true;
+        if (status.authUrl) {
+          loginBtn.href = status.authUrl;
+        }
+      }
+
+      if (status.active || (status.torrent && status.torrent.progress > 0)) {
+        statusCard.classList.remove('hidden');
+      }
+
+      if (status.torrent) {
+        torrentName.textContent = status.torrent.name || 'Đang lấy thông tin...';
+        torrentSize.textContent = status.torrent.length ? formatBytes(status.torrent.length) : 'Đang tính toán...';
+        torrentProgressBar.style.width = `${status.torrent.progress}%`;
+        torrentPercent.textContent = `${status.torrent.progress}%`;
+        torrentPeers.textContent = `${status.torrent.numPeers} Peers`;
+        torrentSpeed.textContent = `⬇ ${status.torrent.downloadSpeed} | ⬆ ${status.torrent.uploadSpeed}`;
+      }
+
+      if (status.gdrive) {
+        gdriveProgressBar.style.width = `${status.gdrive.progress}%`;
+        gdrivePercent.textContent = `${status.gdrive.progress}%`;
+        
+        if (status.gdrive.status === 'idle') {
+          gdriveStatus.textContent = 'Đang chờ torrent tải xong...';
+          gdriveStatus.className = 'status-text';
+        } else if (status.gdrive.status === 'uploading') {
+          gdriveStatus.textContent = 'Đang tải lên Google Drive...';
+          gdriveStatus.className = 'status-text uploading';
+        } else if (status.gdrive.status === 'completed') {
+          gdriveStatus.textContent = 'Đã tải lên Google Drive thành công!';
+          gdriveStatus.className = 'status-text completed';
+        } else if (status.gdrive.status === 'error') {
+          gdriveStatus.textContent = `Lỗi Drive: ${status.gdrive.error}`;
+          gdriveStatus.className = 'status-text error';
+        }
+      }
+    };
+  </script>
+</body>
+</html>

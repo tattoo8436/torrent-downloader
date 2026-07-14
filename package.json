@@ -1,0 +1,17 @@
+{
+  "name": "torrent-to-gdrive",
+  "version": "1.0.0",
+  "description": "Download torrent via magnet link and upload to Google Drive",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@googleapis/drive": "^8.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "googleapis": "^173.0.0",
+    "webtorrent": "^2.4.2"
+  }
+}
