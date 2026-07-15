@@ -14,7 +14,7 @@
   <div class="container">
     <header>
       <h1>Torrent <span>to</span> Google Drive</h1>
-      <p class="subtitle">Tải file Torrent siêu tốc bằng Magnet Link và tự động đồng bộ hóa lên Google Drive.</p>
+      <p class="subtitle">Tải đồng thời nhiều link Torrent bằng Magnet Link và tự động đồng bộ hóa lên Google Drive.</p>
     </header>
 
     <main>
@@ -34,37 +34,8 @@
         <p id="errorMsg" class="error-msg"></p>
       </div>
 
-      <div class="card status-card hidden" id="statusCard">
-        <div class="torrent-header">
-          <h2 id="torrentName">Đang lấy thông tin...</h2>
-          <span class="badge" id="torrentSize">0 B</span>
-        </div>
-
-        <div class="progress-section">
-          <h3>Tiến trình tải torrent</h3>
-          <div class="progress-bar-container">
-            <div class="progress-bar" id="torrentProgressBar" style="width: 0%"></div>
-          </div>
-          <div class="progress-stats">
-            <span id="torrentPercent">0%</span>
-            <span id="torrentPeers">0 Peers</span>
-            <span id="torrentSpeed">⬇ 0 B/s | ⬆ 0 B/s</span>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="progress-section">
-          <h3>Đồng bộ hóa Google Drive</h3>
-          <div class="progress-bar-container gdrive">
-            <div class="progress-bar gdrive-bar" id="gdriveProgressBar" style="width: 0%"></div>
-          </div>
-          <div class="progress-stats">
-            <span id="gdriveStatus">Đang chờ torrent tải xong...</span>
-            <span id="gdrivePercent">0%</span>
-          </div>
-        </div>
-      </div>
+      <!-- Container containing all dynamic status cards -->
+      <div id="tasksContainer"></div>
     </main>
 
     <footer>
@@ -76,18 +47,9 @@
     const magnetInput = document.getElementById('magnetLink');
     const downloadBtn = document.getElementById('downloadBtn');
     const errorMsg = document.getElementById('errorMsg');
-    const statusCard = document.getElementById('statusCard');
-    
-    const torrentName = document.getElementById('torrentName');
-    const torrentSize = document.getElementById('torrentSize');
-    const torrentProgressBar = document.getElementById('torrentProgressBar');
-    const torrentPercent = document.getElementById('torrentPercent');
-    const torrentPeers = document.getElementById('torrentPeers');
-    const torrentSpeed = document.getElementById('torrentSpeed');
-
-    const gdriveProgressBar = document.getElementById('gdriveProgressBar');
-    const gdriveStatus = document.getElementById('gdriveStatus');
-    const gdrivePercent = document.getElementById('gdrivePercent');
+    const authCard = document.getElementById('authCard');
+    const loginBtn = document.getElementById('loginBtn');
+    const tasksContainer = document.getElementById('tasksContainer');
 
     function formatBytes(bytes, decimals = 2) {
       if (!bytes) return '0 Bytes';
@@ -107,7 +69,7 @@
       
       errorMsg.textContent = '';
       downloadBtn.disabled = true;
-      downloadBtn.textContent = 'Đang kết nối...';
+      downloadBtn.textContent = 'Đang gửi...';
 
       try {
         const response = await fetch('/api/download', {
@@ -121,23 +83,16 @@
         
         if (!response.ok) {
           showError(data.error || 'Có lỗi xảy ra.');
-          downloadBtn.disabled = false;
-          downloadBtn.textContent = 'Bắt đầu tải';
         } else {
-          statusCard.classList.remove('hidden');
           magnetInput.value = '';
-          downloadBtn.disabled = false;
-          downloadBtn.textContent = 'Bắt đầu tải';
         }
       } catch (err) {
         showError('Không thể kết nối đến server.');
+      } finally {
         downloadBtn.disabled = false;
         downloadBtn.textContent = 'Bắt đầu tải';
       }
     });
-
-    const authCard = document.getElementById('authCard');
-    const loginBtn = document.getElementById('loginBtn');
 
     function showError(msg) {
       errorMsg.textContent = msg;
@@ -146,51 +101,115 @@
     // Connect to Server-Sent Events for progress updates
     const eventSource = new EventSource('/api/status');
     eventSource.onmessage = (event) => {
-      const status = JSON.parse(event.data);
+      const payload = JSON.parse(event.data);
 
       // Handle OAuth visibility
-      if (status.authenticated) {
+      if (payload.authenticated) {
         authCard.classList.add('hidden');
         downloadBtn.disabled = false;
       } else {
         authCard.classList.remove('hidden');
         downloadBtn.disabled = true;
-        if (status.authUrl) {
-          loginBtn.href = status.authUrl;
+        if (payload.authUrl) {
+          loginBtn.href = payload.authUrl;
         }
       }
 
-      if (status.active || (status.torrent && status.torrent.progress > 0)) {
-        statusCard.classList.remove('hidden');
+      // Render tasks list dynamically
+      const tasks = payload.tasks || [];
+      
+      // Keep track of tasks currently rendered to remove the ones no longer active or clear finished ones if needed.
+      // For simplicity, we fully rebuild the list only if items change, but updating existing elements prevents flickering.
+      
+      // Quick rebuild approach with minimum flickering
+      if (tasks.length === 0) {
+        tasksContainer.innerHTML = '';
+        return;
       }
 
-      if (status.torrent) {
-        torrentName.textContent = status.torrent.name || 'Đang lấy thông tin...';
-        torrentSize.textContent = status.torrent.length ? formatBytes(status.torrent.length) : 'Đang tính toán...';
-        torrentProgressBar.style.width = `${status.torrent.progress}%`;
-        torrentPercent.textContent = `${status.torrent.progress}%`;
-        torrentPeers.textContent = `${status.torrent.numPeers} Peers`;
-        torrentSpeed.textContent = `⬇ ${status.torrent.downloadSpeed} | ⬆ ${status.torrent.uploadSpeed}`;
-      }
+      tasks.forEach(task => {
+        let taskEl = document.getElementById(`task-${task.id}`);
+        if (!taskEl) {
+          taskEl = document.createElement('div');
+          taskEl.id = `task-${task.id}`;
+          taskEl.className = 'card status-card';
+          tasksContainer.appendChild(taskEl);
+        }
 
-      if (status.gdrive) {
-        gdriveProgressBar.style.width = `${status.gdrive.progress}%`;
-        gdrivePercent.textContent = `${status.gdrive.progress}%`;
+        // Inner HTML mapping
+        const name = task.name || 'Đang lấy thông tin...';
+        const size = task.length ? formatBytes(task.length) : 'Đang tính toán...';
         
-        if (status.gdrive.status === 'idle') {
-          gdriveStatus.textContent = 'Đang chờ torrent tải xong...';
-          gdriveStatus.className = 'status-text';
-        } else if (status.gdrive.status === 'uploading') {
-          gdriveStatus.textContent = 'Đang tải lên Google Drive...';
-          gdriveStatus.className = 'status-text uploading';
-        } else if (status.gdrive.status === 'completed') {
-          gdriveStatus.textContent = 'Đã tải lên Google Drive thành công!';
-          gdriveStatus.className = 'status-text completed';
-        } else if (status.gdrive.status === 'error') {
-          gdriveStatus.textContent = `Lỗi Drive: ${status.gdrive.error}`;
-          gdriveStatus.className = 'status-text error';
+        let gdriveText = 'Đang chờ torrent tải xong...';
+        let gdriveClass = 'status-text';
+        if (task.gdrive.status === 'uploading') {
+          gdriveText = 'Đang tải lên Google Drive...';
+          gdriveClass = 'status-text uploading';
+        } else if (task.gdrive.status === 'completed') {
+          gdriveText = 'Đã tải lên Google Drive thành công!';
+          gdriveClass = 'status-text completed';
+        } else if (task.gdrive.status === 'error') {
+          gdriveText = `Lỗi Drive: ${task.gdrive.error}`;
+          gdriveClass = 'status-text error';
         }
-      }
+
+        taskEl.innerHTML = `
+          <div class="torrent-header">
+            <h2 title="${name}">${name}</h2>
+            <div class="header-right">
+              <span class="badge">${size}</span>
+              <button class="btn-cancel" onclick="cancelTask('${task.id}')">Hủy</button>
+            </div>
+          </div>
+
+          <div class="progress-section">
+            <h3>Tiến trình tải torrent</h3>
+            <div class="progress-bar-container">
+              <div class="progress-bar" style="width: ${task.progress}%"></div>
+            </div>
+            <div class="progress-stats">
+              <span>${task.progress}%</span>
+              <span>${task.numPeers} Peers</span>
+              <span>⬇ ${task.downloadSpeed} | ⬆ ${task.uploadSpeed}</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="progress-section">
+            <h3>Đồng bộ hóa Google Drive</h3>
+            <div class="progress-bar-container gdrive">
+              <div class="progress-bar gdrive-bar" style="width: ${task.gdrive.progress}%"></div>
+            </div>
+            <div class="progress-stats">
+              <span class="${gdriveClass}">${gdriveText}</span>
+              <span>${task.gdrive.progress}%</span>
+            </div>
+          </div>
+        `;
+      });
+
+      window.cancelTask = async (taskId) => {
+        if (!confirm('Bạn có chắc chắn muốn hủy và xóa tác vụ này?')) return;
+        try {
+          const response = await fetch(`/api/download/${taskId}`, { method: 'DELETE' });
+          if (!response.ok) {
+            const data = await response.json();
+            alert(data.error || 'Có lỗi xảy ra khi hủy.');
+          }
+        } catch (e) {
+          alert('Không thể kết nối đến máy chủ.');
+        }
+      };
+
+
+      // Remove DOM elements for tasks that are no longer in server state
+      const existingTaskIds = tasks.map(t => `task-${t.id}`);
+      Array.from(tasksContainer.children).forEach(child => {
+        if (!existingTaskIds.includes(child.id)) {
+          child.remove();
+        }
+      });
     };
   </script>
 </body>
