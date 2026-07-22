@@ -51,6 +51,21 @@ if (fs.existsSync(TOKEN_PATH)) {
   }
 }
 
+// Helper to clear invalid token and reset auth status
+function resetAuth() {
+  if (fs.existsSync(TOKEN_PATH)) {
+    try {
+      fs.unlinkSync(TOKEN_PATH);
+      console.log('Removed invalid token.json');
+    } catch (e) {
+      console.error('Error removing token.json:', e.message);
+    }
+  }
+  oauth2Client.setCredentials({});
+  authState.authenticated = false;
+  updateAuthStatus();
+}
+
 // Generate Auth URL if not authenticated
 function updateAuthStatus() {
   if (!authState.authenticated) {
@@ -184,10 +199,13 @@ async function uploadToGDrive(taskId, filePath, fileName) {
     }
   } catch (error) {
     console.error(`[Task ${taskId}] Google Drive Upload Error:`, error);
+    if (error.message && error.message.includes('invalid_grant')) {
+      resetAuth();
+    }
     const finalTask = tasks.get(taskId);
     if (finalTask) {
       finalTask.status = 'error';
-      finalTask.gdrive = { status: 'error', error: error.message, progress: 0 };
+      finalTask.gdrive = { status: 'error', error: error.message || 'invalid_grant', progress: 0 };
     }
     throw error;
   }
